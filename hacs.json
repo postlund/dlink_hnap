@@ -1,0 +1,10 @@
+{
+  "name": "D-Link HNAP",
+  "content_in_root": false,
+  "domains": [
+    "binary_sensor"
+  ],
+  "homeassistant": "0.109.0",
+  "iot_class": "Local Pull",
+  "render_readme": true
+}

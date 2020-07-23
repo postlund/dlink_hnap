@@ -1,0 +1,9 @@
+{
+    "domain": "dlink_hnap",
+    "name": "D-Link HNAP",
+    "config_flow": false,
+    "documentation": "https://github.com/postlund/dlink_hnap",
+    "codeowners": [
+        "@postlund"
+    ]
+}
