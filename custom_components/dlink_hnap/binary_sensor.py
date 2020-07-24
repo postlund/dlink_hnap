@@ -5,7 +5,7 @@ from datetime import timedelta, datetime
 
 import voluptuous as vol
 
-from homeassistant.components.binary_sensor import BinarySensorDevice, PLATFORM_SCHEMA
+from homeassistant.components.binary_sensor import BinarySensorEntity, PLATFORM_SCHEMA
 from homeassistant.const import (
     CONF_NAME,
     CONF_PASSWORD,
@@ -57,7 +57,7 @@ async def async_setup_platform(hass, config, async_add_devices, discovery_info=N
     async_add_devices([motion_sensor], update_before_add=True)
 
 
-class DlinkMotionSensor(BinarySensorDevice):
+class DlinkMotionSensor(BinarySensorEntity):
     """Representation of a D-Link motion sensor."""
 
     def __init__(self, name, timeout, motion_sensor):
