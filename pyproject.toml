@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "dlink_hnap"
-version = "0.1.0"
+version = "0.2.0"
 description = "Home Assistant custom integration for D-Link sensors"
 authors = ["Pierre Ståhl <pierre.staahl@gmail.com>"]
 license = "MIT"

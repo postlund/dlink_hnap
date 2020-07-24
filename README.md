@@ -8,8 +8,10 @@
 This is an experimental integration to Home Assistant supporting D-Link devices. It communicates
 locally with the devices, i.e. no cloud needed, but only supports polling.
 
-Only motion sensors (DCH-S150) are supported so far. But it shouldn't be that hard to refactor
-and add support for other devices as well.
+The following devices are supported:
+
+* Motion Sensor (DCH-S150)
+* Water Leakage Sensor (DCH-S160)
 
 *DISCLAIMER: Currently I don't use any of these devices. So I cannot test the integration. It is
 provided as reference and for the community to maintain. Please send PRs!*
@@ -35,9 +37,16 @@ binary_sensor:
   - platform: dlink_hnap
     name: Kitchen Motion
     host: 10.0.0.10
+    type: motion
     username: Admin
     password: 123456
     timeout: 35
+  - platform: dlink_hnap
+    name: Kitchen Leakage
+    host: 10.0.0.11
+    type: water
+    username: Admin
+    password: 123456
 ```
 
 Here are the configuration options:
@@ -45,7 +54,8 @@ Here are the configuration options:
 key | optional | type | default | description
 -- | -- | -- | -- | --
 `name` | True | string | D-Link Motion Sensor | Name for the sensor
+`type` | False | string | | Sensor type: motion or water
 `host` | False | string | | IP address to sensor
 `username` | True | string | Admin | Username for authentication (always Admin)
 `password` | False | int | | PIN code written on the device
-`timeout` | True | int | 35 | Amount of seconds before sensor going to `off` after *last* motion
+`timeout` | True | int | 35 | Amount of seconds before sensor going to `off` after *last* motion (only used when `type` is `motion`)

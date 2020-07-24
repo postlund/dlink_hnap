@@ -5,13 +5,19 @@ from datetime import timedelta, datetime
 
 import voluptuous as vol
 
-from homeassistant.components.binary_sensor import BinarySensorEntity, PLATFORM_SCHEMA
+from homeassistant.components.binary_sensor import (
+    BinarySensorEntity,
+    PLATFORM_SCHEMA,
+    DEVICE_CLASS_MOTION,
+    DEVICE_CLASS_MOISTURE,
+)
 from homeassistant.const import (
     CONF_NAME,
     CONF_PASSWORD,
     CONF_USERNAME,
     CONF_HOST,
     CONF_TIMEOUT,
+    CONF_TYPE,
 )
 import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
@@ -28,6 +34,7 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
     {
         vol.Required(CONF_HOST): cv.string,
         vol.Required(CONF_PASSWORD): cv.string,
+        vol.Required(CONF_TYPE): vol.In(["motion", "water"]),
         vol.Optional(CONF_USERNAME, default=DEFAULT_USERNAME): cv.string,
         vol.Optional(CONF_NAME, default=DEFAULT_NAME): cv.string,
         vol.Optional(CONF_TIMEOUT, default=DEFAULT_TIMEOUT): cv.positive_int,
@@ -37,7 +44,13 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
 
 async def async_setup_platform(hass, config, async_add_devices, discovery_info=None):
     """Set up the D-Link motion sensor."""
-    from .dlink import HNAPClient, MotionSensor, NanoSOAPClient, ACTION_BASE_URL
+    from .dlink import (
+        HNAPClient,
+        MotionSensor,
+        WaterSensor,
+        NanoSOAPClient,
+        ACTION_BASE_URL,
+    )
 
     soap = NanoSOAPClient(
         config.get(CONF_HOST),
@@ -50,21 +63,24 @@ async def async_setup_platform(hass, config, async_add_devices, discovery_info=N
         soap, config.get(CONF_USERNAME), config.get(CONF_PASSWORD), loop=hass.loop
     )
 
-    motion_sensor = DlinkMotionSensor(
-        config.get(CONF_NAME), config.get(CONF_TIMEOUT), MotionSensor(client)
-    )
+    if config.get(CONF_TYPE) == "motion":
+        sensor = DlinkMotionSensor(
+            config.get(CONF_NAME), config.get(CONF_TIMEOUT), MotionSensor(client)
+        )
+    else:
+        sensor = DlinkWaterSensor(config.get(CONF_NAME), WaterSensor(client))
 
-    async_add_devices([motion_sensor], update_before_add=True)
+    async_add_devices([sensor], update_before_add=True)
 
 
-class DlinkMotionSensor(BinarySensorEntity):
-    """Representation of a D-Link motion sensor."""
+class DlinkBinarySensor(BinarySensorEntity):
+    """Representation of a D-Link binary sensor."""
 
-    def __init__(self, name, timeout, motion_sensor):
+    def __init__(self, name, sensor, device_class):
         """Initialize the D-Link motion binary sensor."""
         self._name = name
-        self._timeout = timeout
-        self._motion_sensor = motion_sensor
+        self._sensor = sensor
+        self._device_class = device_class
         self._on = False
 
     @property
@@ -80,12 +96,21 @@ class DlinkMotionSensor(BinarySensorEntity):
     @property
     def device_class(self):
         """Return the class of this sensor."""
-        return "motion"
+        return self._device_class
+
+
+class DlinkMotionSensor(DlinkBinarySensor):
+    """Representation of a D-Link motion sensor."""
+
+    def __init__(self, name, timeout, sensor):
+        """Initialize the D-Link motion binary sensor."""
+        super().__init__(name, sensor, DEVICE_CLASS_MOTION)
+        self._timeout = timeout
 
     async def async_update(self):
         """Get the latest data and updates the states."""
         try:
-            last_trigger = await self._motion_sensor.latest_trigger()
+            last_trigger = await self._sensor.latest_trigger()
         except Exception:
             last_trigger = None
             _LOGGER.exception("failed to update motion sensor")
@@ -102,3 +127,23 @@ class DlinkMotionSensor(BinarySensorEntity):
             if not self._on:
                 self._on = True
                 self.hass.async_add_job(self.async_update_ha_state(True))
+
+
+class DlinkWaterSensor(DlinkBinarySensor):
+    """Representation of a D-Link water sensor."""
+
+    def __init__(self, name, sensor):
+        """Initialize the D-Link motion binary sensor."""
+        super().__init__(name, sensor, DEVICE_CLASS_MOISTURE)
+
+    async def async_update(self):
+        """Get the latest data and updates the states."""
+        try:
+            water_detected = await self._sensor.water_detected()
+            if self._on != water_detected:
+                self._on = water_detected
+                self.hass.async_add_job(self.async_update_ha_state(True))
+
+        except Exception:
+            last_trigger = None
+            _LOGGER.exception("failed to update water sensor")

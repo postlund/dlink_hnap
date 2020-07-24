@@ -154,11 +154,11 @@ class HNAPClient:
         return self._client
 
 
-class MotionSensor:
-    """Wrapper class for a motion sensor."""
+class BaseSensor:
+    """Wrapper class for a sensor."""
 
     def __init__(self, client, module_id=1):
-        """Initialize a new MotionSensor instance."""
+        """Initialize a new BaseSensor instance."""
         self.client = client
         self.module_id = module_id
         self._soap_actions = None
@@ -188,15 +188,25 @@ class MotionSensor:
 
         return datetime.fromtimestamp(float(detect_time))
 
-    async def system_log(self):
-        resp = await self.client.call(
-            "GetSystemLogs", MaxCount=100, PageOffset=1, StartTime=0, EndTime="All"
-        )
-        print(resp)
-
     async def _cache_soap_actions(self):
         resp = await self.client.soap_actions(self.module_id)
         self._soap_actions = resp["ModuleSOAPList"]["SOAPActions"]["Action"]
+
+
+class MotionSensor(BaseSensor):
+    """Wrapper class for motion sensor."""
+
+
+class WaterSensor(BaseSensor):
+    """Wrapper class for water detect sensor."""
+
+    async def water_detected(self):
+        """Get latest trigger time from sensor."""
+        if not self._soap_actions:
+            await self._cache_soap_actions()
+
+        resp = await self.client.call("GetWaterDetectorState", ModuleID=self.module_id)
+        return resp.get("IsWater") == "true"
 
 
 class NanoSOAPClient:
@@ -266,17 +276,22 @@ if __name__ == "__main__":
         session = aiohttp.ClientSession()
         soap = NanoSOAPClient(address, ACTION_BASE_URL, loop=loop, session=session)
         client = HNAPClient(soap, "Admin", pin, loop=loop)
-        motion = MotionSensor(client)
         await client.login()
 
         if cmd == "latest_motion":
-            latest = await motion.latest_trigger()
+            latest = await BaseSensor(client).latest_trigger()
             print("Latest time: " + str(latest))
+        elif cmd == "water_detected":
+            latest = await WaterSensor(client).water_detected()
+            print("Water detected: " + str(latest))
         elif cmd == "actions":
             print("Supported actions:")
             print("\n".join(client.actions))
         elif cmd == "log":
-            log = await motion.system_log()
+            resp = await self.client.call(
+                "GetSystemLogs", MaxCount=100, PageOffset=1, StartTime=0, EndTime="All"
+            )
+            print(resp)
 
         session.close()
 
