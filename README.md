@@ -34,6 +34,7 @@ it in `configuration.yaml`:
 binary_sensor:
   - platform: dlink_hnap
     name: Kitchen Motion
+    host: 10.0.0.10
     username: Admin
     password: 123456
     timeout: 35
