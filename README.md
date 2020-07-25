@@ -18,7 +18,7 @@ provided as reference and for the community to maintain. Please send PRs!*
 
 ### HACS _(preferred method)_
 
-Add this repository to [HACS](https://hacs.xyz/) and install from there. You will get new updates automatically.
+This integration is available in the default repository list, just search for it!
 
 ### Manual install
 
