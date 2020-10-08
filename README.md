@@ -11,7 +11,7 @@ locally with the devices, i.e. no cloud needed, but only supports polling.
 The following devices are supported:
 
 * Motion Sensor (DCH-S150)
-* Water Leakage Sensor (DCH-S160)
+* Water Leakage Sensor (DCH-S160 and DCH-S161)
 
 *DISCLAIMER: Currently I don't use any of these devices. So I cannot test the integration. It is
 provided as reference and for the community to maintain. Please send PRs!*
