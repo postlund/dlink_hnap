@@ -118,7 +118,7 @@ class DlinkMotionSensor(DlinkBinarySensor):
         if not last_trigger:
             return
 
-        has_timed_out = (datetime.now() - last_trigger).seconds > self._timeout
+        has_timed_out = datetime.now() > last_trigger + timedelta(seconds=self._timeout)
         if has_timed_out:
             if self._on:
                 self._on = False
