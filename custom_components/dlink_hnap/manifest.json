@@ -6,5 +6,6 @@
     "codeowners": [
         "@postlund"
     ],
-    "issue_tracker": "https://github.com/postlund/dlink_hnap/issues"
+    "issue_tracker": "https://github.com/postlund/dlink_hnap/issues",
+    "version": "1.0.0"
 }
