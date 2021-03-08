@@ -1,5 +1,4 @@
 """Support for D-Link motion sensors."""
-import asyncio
 import logging
 from datetime import timedelta, datetime
 
@@ -20,9 +19,20 @@ from homeassistant.const import (
     CONF_TYPE,
 )
 import homeassistant.helpers.config_validation as cv
+import homeassistant.helpers.device_registry as dr
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
+from .dlink import (
+    HNAPClient,
+    MotionSensor,
+    WaterSensor,
+    NanoSOAPClient,
+    ACTION_BASE_URL,
+)
+
 _LOGGER = logging.getLogger(__name__)
+
+DOMAIN = "dlink_hnap"
 
 DEFAULT_NAME = "D-Link Motion Sensor"
 DEFAULT_USERNAME = "Admin"
@@ -44,24 +54,11 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
 
 async def async_setup_platform(hass, config, async_add_devices, discovery_info=None):
     """Set up the D-Link motion sensor."""
-    from .dlink import (
-        HNAPClient,
-        MotionSensor,
-        WaterSensor,
-        NanoSOAPClient,
-        ACTION_BASE_URL,
-    )
-
     soap = NanoSOAPClient(
-        config.get(CONF_HOST),
-        ACTION_BASE_URL,
-        loop=hass.loop,
-        session=async_get_clientsession(hass),
+        config.get(CONF_HOST), ACTION_BASE_URL, async_get_clientsession(hass),
     )
 
-    client = HNAPClient(
-        soap, config.get(CONF_USERNAME), config.get(CONF_PASSWORD), loop=hass.loop
-    )
+    client = HNAPClient(soap, config.get(CONF_USERNAME), config.get(CONF_PASSWORD))
 
     if config.get(CONF_TYPE) == "motion":
         sensor = DlinkMotionSensor(
@@ -98,6 +95,26 @@ class DlinkBinarySensor(BinarySensorEntity):
         """Return the class of this sensor."""
         return self._device_class
 
+    @property
+    def unique_id(self):
+        """Return unique ID for sensor."""
+        return self._sensor.mac
+
+    @property
+    def device_info(self):
+        """Return a device description for device registry."""
+        description = self._sensor.model_description
+        model = self._sensor.model
+        hardware = self._sensor.hardware
+        return {
+            "identifiers": {(DOMAIN, self.unique_id)},
+            "name": self.name,
+            "manufacturer": self._sensor.vendor,
+            "model": f"{description} {model} ({hardware})",
+            "sw_version": self._sensor.firmware,
+            "connections": {(dr.CONNECTION_NETWORK_MAC, self._sensor.mac)},
+        }
+
 
 class DlinkMotionSensor(DlinkBinarySensor):
     """Representation of a D-Link motion sensor."""
@@ -111,7 +128,7 @@ class DlinkMotionSensor(DlinkBinarySensor):
         """Get the latest data and updates the states."""
         try:
             last_trigger = await self._sensor.latest_trigger()
-        except Exception:
+        except Exception:  # pylint: disable=broad-except
             last_trigger = None
             _LOGGER.exception("failed to update motion sensor")
 
@@ -144,6 +161,5 @@ class DlinkWaterSensor(DlinkBinarySensor):
                 self._on = water_detected
                 self.hass.async_add_job(self.async_update_ha_state(True))
 
-        except Exception:
-            last_trigger = None
+        except Exception:  # pylint: disable=broad-except
             _LOGGER.exception("failed to update water sensor")
