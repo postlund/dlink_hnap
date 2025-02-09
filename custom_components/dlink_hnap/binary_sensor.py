@@ -8,8 +8,7 @@ import voluptuous as vol
 from homeassistant.components.binary_sensor import (
     BinarySensorEntity,
     PLATFORM_SCHEMA,
-    DEVICE_CLASS_MOTION,
-    DEVICE_CLASS_MOISTURE,
+    BinarySensorDeviceClass,
 )
 from homeassistant.const import (
     CONF_NAME,
@@ -104,7 +103,7 @@ class DlinkMotionSensor(DlinkBinarySensor):
 
     def __init__(self, name, timeout, sensor):
         """Initialize the D-Link motion binary sensor."""
-        super().__init__(name, sensor, DEVICE_CLASS_MOTION)
+        super().__init__(name, sensor, BinarySensorDeviceClass.MOTION)
         self._timeout = timeout
 
     async def async_update(self):
@@ -134,7 +133,7 @@ class DlinkWaterSensor(DlinkBinarySensor):
 
     def __init__(self, name, sensor):
         """Initialize the D-Link motion binary sensor."""
-        super().__init__(name, sensor, DEVICE_CLASS_MOISTURE)
+        super().__init__(name, sensor, BinarySensorDeviceClass.MOISTURE)
 
     async def async_update(self):
         """Get the latest data and updates the states."""
