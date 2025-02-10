@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
 """Read data from D-Link motion sensor."""
 
-import xml
+import sys
 import hmac
-import urllib
 import logging
 import asyncio
-import functools
-import aiohttp
+
+import xml
 import xml.etree.ElementTree as ET
 
 from io import BytesIO
 from datetime import datetime
 
 import xmltodict
+import aiohttp
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -31,19 +31,14 @@ def _hmac(key, message):
 class AuthenticationError(Exception):
     """Thrown when login fails."""
 
-    pass
-
 
 class HNAPClient:
     """Client for the HNAP protocol."""
 
-    def __init__(self, soap, username, password, loop=None):
+    def __init__(self, soap, username, password):
         """Initialize a new HNAPClient instance."""
         self.username = username
         self.password = password
-        self.logged_in = False
-        self.loop = loop or asyncio.get_event_loop()
-        self.actions = None
         self._client = soap
         self._private_key = None
         self._cookie = None
@@ -53,7 +48,6 @@ class HNAPClient:
     async def login(self):
         """Authenticate with device and obtain cookie."""
         _LOGGER.info("Logging into device")
-        self.logged_in = False
         resp = await self.call(
             "Login",
             Action="request",
@@ -88,24 +82,10 @@ class HNAPClient:
             if resp["LoginResult"].lower() != "success":
                 raise AuthenticationError("Incorrect username or password")
 
-            if not self.actions:
-                self.actions = await self.device_actions()
-
         except xml.parsers.expat.ExpatError:
             raise AuthenticationError("Bad response from device")
 
-        self.logged_in = True
-
-    async def device_actions(self):
-        actions = await self.call("GetDeviceSettings")
-        return list(
-            map(lambda x: x[x.rfind("/") + 1 :], actions["SOAPActions"]["string"])
-        )
-
-    async def soap_actions(self, module_id):
-        return await self.call("GetModuleSOAPActions", ModuleID=module_id)
-
-    async def call(self, method, *args, **kwargs):
+    async def call(self, method, *_, **kwargs):
         """Call an NHAP method (async)."""
         # Do login if no login has been done before
         if not self._private_key and method != "Login":
@@ -116,9 +96,15 @@ class HNAPClient:
             result = await self.soap().call(method, **kwargs)
             if "ERROR" in result:
                 self._bad_response()
-        except:
+        except Exception:  # pylint: disable=broad-except
             self._bad_response()
         return result
+
+    async def soap_actions(self, module_id):
+        """Return supported SOAP actions."""
+        resp = await self.call("GetDeviceSettings", ModuleID=module_id)
+        actions = resp["SOAPActions"]["string"]
+        return [x[x.rfind("/") + 1 :] for x in actions]
 
     def _bad_response(self):
         _LOGGER.error("Got an error, resetting private key")
@@ -161,14 +147,52 @@ class BaseSensor:
         """Initialize a new BaseSensor instance."""
         self.client = client
         self.module_id = module_id
-        self._soap_actions = None
+        self._settings = {}
+        self._soap_actions = []
+
+    @property
+    def vendor(self):
+        """Return device vendor name."""
+        return self._settings.get("VendorName")
+
+    @property
+    def model(self):
+        """Return model name."""
+        return self._settings.get("ModelName")
+
+    @property
+    def model_description(self):
+        """Return model description."""
+        return self._settings.get("ModelDescription")
+
+    @property
+    def firmware(self):
+        """Return installed firmwware version."""
+        return self._settings.get("FirmwareVersion")
+
+    @property
+    def hardware(self):
+        """Return hardware revision."""
+        return self._settings.get("HardwareVersion")
+
+    @property
+    def mac(self):
+        """Return device MAC address."""
+        return self._settings.get("DeviceMacId")
+
+    async def _init(self):
+        if not self._settings:
+            self._settings = await self.client.call("GetDeviceSettings")
+
+        if not self._soap_actions:
+            self._soap_actions = await self.client.soap_actions(self.module_id)
+
+            print("actions:", self._soap_actions)
 
     async def latest_trigger(self):
         """Get latest trigger time from sensor."""
-        if not self._soap_actions:
-            await self._cache_soap_actions()
+        await self._init()
 
-        detect_time = None
         if "GetLatestDetection" in self._soap_actions:
             resp = await self.client.call("GetLatestDetection", ModuleID=self.module_id)
             detect_time = resp["LatestDetectTime"]
@@ -182,15 +206,11 @@ class BaseSensor:
                 EndTime="All",
             )
             if "MotionDetectorLogList" not in resp:
-                _LOGGER.error("log list: " + str(resp))
+                _LOGGER.exception("log list: %s", resp)
             log_list = resp["MotionDetectorLogList"]
             detect_time = log_list["MotionDetectorLog"]["TimeStamp"]
 
         return datetime.fromtimestamp(float(detect_time))
-
-    async def _cache_soap_actions(self):
-        resp = await self.client.soap_actions(self.module_id)
-        self._soap_actions = resp["ModuleSOAPList"]["SOAPActions"]["Action"]
 
 
 class MotionSensor(BaseSensor):
@@ -202,14 +222,13 @@ class WaterSensor(BaseSensor):
 
     async def water_detected(self):
         """Get latest trigger time from sensor."""
-        if not self._soap_actions:
-            await self._cache_soap_actions()
-
+        await self._init()
         resp = await self.client.call("GetWaterDetectorState", ModuleID=self.module_id)
         return resp.get("IsWater") == "true"
 
 
-class NanoSOAPClient:
+class NanoSOAPClient:  # pylint: disable=too-few-public-methods
+    """Minimalistic SOAP client."""
 
     BASE_NS = {
         "xmlns:soap": "http://schemas.xmlsoap.org/soap/envelope/",
@@ -218,11 +237,10 @@ class NanoSOAPClient:
     }
     ACTION_NS = {"xmlns": "http://purenetworks.com/HNAP1/"}
 
-    def __init__(self, address, action, loop=None, session=None):
+    def __init__(self, address, action, session):
         self.address = "http://{0}/HNAP1".format(address)
         self.action = action
-        self.loop = loop or asyncio.get_event_loop()
-        self.session = session or aiohttp.ClientSession(loop=loop)
+        self.session = session
         self.headers = {}
 
     def _generate_request_xml(self, method, **kwargs):
@@ -238,61 +256,61 @@ class NanoSOAPClient:
         envelope = ET.Element("soap:Envelope", self.BASE_NS)
         envelope.append(body)
 
-        f = BytesIO()
+        data = BytesIO()
         tree = ET.ElementTree(envelope)
-        tree.write(f, encoding="utf-8", xml_declaration=True)
+        tree.write(data, encoding="utf-8", xml_declaration=True)
 
-        return f.getvalue().decode("utf-8")
+        return data.getvalue().decode("utf-8")
 
     async def call(self, method, **kwargs):
-        xml = self._generate_request_xml(method, **kwargs)
+        """Call a SOAP action."""
+        data = self._generate_request_xml(method, **kwargs)
 
         headers = self.headers.copy()
         headers["SOAPAction"] = '"{0}{1}"'.format(self.action, method)
 
         resp = await self.session.post(
-            self.address, data=xml, headers=headers, timeout=10
+            self.address, data=data, headers=headers, timeout=10
         )
         text = await resp.text()
         parsed = xmltodict.parse(text)
         if "soap:Envelope" not in parsed:
-            _LOGGER.error("parsed: " + str(parsed))
+            _LOGGER.exception("parsed: %s", parsed)
             raise Exception("probably a bad response")
 
         return parsed["soap:Envelope"]["soap:Body"][method + "Response"]
 
 
-if __name__ == "__main__":
+async def main():
+    """Script starts here."""
     logging.basicConfig(level=logging.DEBUG)
-    loop = asyncio.get_event_loop()
-
-    import sys
 
     address = sys.argv[1]
     pin = sys.argv[2]
     cmd = sys.argv[3]
 
-    async def _print_latest_motion():
-        session = aiohttp.ClientSession()
-        soap = NanoSOAPClient(address, ACTION_BASE_URL, loop=loop, session=session)
-        client = HNAPClient(soap, "Admin", pin, loop=loop)
-        await client.login()
+    async with aiohttp.ClientSession() as session:
+        soap = NanoSOAPClient(address, ACTION_BASE_URL, session)
+        client = HNAPClient(soap, "Admin", pin)
 
         if cmd == "latest_motion":
             latest = await BaseSensor(client).latest_trigger()
-            print("Latest time: " + str(latest))
+            print("Latest time:", latest)
         elif cmd == "water_detected":
             latest = await WaterSensor(client).water_detected()
             print("Water detected: " + str(latest))
         elif cmd == "actions":
             print("Supported actions:")
-            print("\n".join(client.actions))
+            actions = await client.soap_actions(module_id=1)
+            print("\n".join(actions))
         elif cmd == "log":
-            resp = await self.client.call(
+            resp = await client.call(
                 "GetSystemLogs", MaxCount=100, PageOffset=1, StartTime=0, EndTime="All"
             )
             print(resp)
+        else:
+            print(await client.call(cmd))
 
-        session.close()
 
-    loop.run_until_complete(_print_latest_motion())
+if __name__ == "__main__":
+    asyncio.get_event_loop().run_until_complete(main())
