@@ -1,0 +1,61 @@
+{
+    "config": {
+        "step": {
+            "user": {
+                "title": "Connect to D-Link Device",
+                "description": "Enter the connection details for your D-Link HNAP device.",
+                "data": {
+                    "host": "Host",
+                    "username": "Username",
+                    "password": "Password"
+                }
+            },
+            "credentials": {
+                "title": "Authenticate with {name}",
+                "description": "A D-Link device was discovered at {host}. Enter the credentials to connect.",
+                "data": {
+                    "username": "Username",
+                    "password": "Password"
+                }
+            }
+        },
+        "error": {
+            "cannot_connect": "Failed to connect to the device. Check the host address and ensure the device is powered on.",
+            "invalid_auth": "Invalid username or password.",
+            "unknown": "An unexpected error occurred."
+        },
+        "abort": {
+            "already_configured": "This device is already configured.",
+            "no_host": "Could not determine host from discovery information."
+        }
+    },
+    "options": {
+        "step": {
+            "init": {
+                "title": "D-Link HNAP Options",
+                "data": {
+                    "scan_interval": "Update interval (seconds)",
+                    "motion_timeout": "Motion timeout (seconds)"
+                }
+            }
+        }
+    },
+    "entity": {
+        "binary_sensor": {
+            "water": {
+                "name": "Water detected"
+            },
+            "motion": {
+                "name": "Motion detected"
+            }
+        },
+        "sensor": {
+            "temperature": {
+                "name": "Temperature"
+            },
+            "firmware": {
+                "name": "Firmware version"
+            }
+        }
+    }
+}

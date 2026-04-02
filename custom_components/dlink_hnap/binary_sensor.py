@@ -1,148 +1,85 @@
-"""Support for D-Link motion sensors."""
-import asyncio
-import logging
-from datetime import timedelta, datetime
+"""Binary sensor platform for D-Link HNAP integration."""
+from __future__ import annotations
 
-import voluptuous as vol
+from collections.abc import Callable
+from dataclasses import dataclass
+from typing import Any
 
 from homeassistant.components.binary_sensor import (
-    BinarySensorEntity,
-    PLATFORM_SCHEMA,
     BinarySensorDeviceClass,
+    BinarySensorEntity,
+    BinarySensorEntityDescription,
 )
-from homeassistant.const import (
-    CONF_NAME,
-    CONF_PASSWORD,
-    CONF_USERNAME,
-    CONF_HOST,
-    CONF_TIMEOUT,
-    CONF_TYPE,
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
+
+from .const import CAP_MOTION, CAP_WATER, DOMAIN
+from .coordinator import HNAPDataUpdateCoordinator
+from .entity import HNAPBaseEntity
+
+
+@dataclass(frozen=True, kw_only=True)
+class HNAPBinarySensorEntityDescription(BinarySensorEntityDescription):
+    """Describes an HNAP binary sensor entity."""
+
+    value_fn: Callable[[dict[str, Any]], bool | None]
+    required_capability: str
+
+
+BINARY_SENSOR_DESCRIPTIONS: tuple[HNAPBinarySensorEntityDescription, ...] = (
+    HNAPBinarySensorEntityDescription(
+        key="water",
+        translation_key="water",
+        device_class=BinarySensorDeviceClass.MOISTURE,
+        value_fn=lambda data: data.get("water_detected"),
+        required_capability=CAP_WATER,
+    ),
+    HNAPBinarySensorEntityDescription(
+        key="motion",
+        translation_key="motion",
+        device_class=BinarySensorDeviceClass.MOTION,
+        value_fn=lambda data: data.get("motion_detected"),
+        required_capability=CAP_MOTION,
+    ),
 )
-import homeassistant.helpers.config_validation as cv
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
-
-_LOGGER = logging.getLogger(__name__)
-
-DEFAULT_NAME = "D-Link Motion Sensor"
-DEFAULT_USERNAME = "Admin"
-DEFAULT_TIMEOUT = 35
-
-SCAN_INTERVAL = timedelta(seconds=5)
-
-PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
-    {
-        vol.Required(CONF_HOST): cv.string,
-        vol.Required(CONF_PASSWORD): cv.string,
-        vol.Required(CONF_TYPE): vol.In(["motion", "water"]),
-        vol.Optional(CONF_USERNAME, default=DEFAULT_USERNAME): cv.string,
-        vol.Optional(CONF_NAME, default=DEFAULT_NAME): cv.string,
-        vol.Optional(CONF_TIMEOUT, default=DEFAULT_TIMEOUT): cv.positive_int,
-    }
-)
 
 
-async def async_setup_platform(hass, config, async_add_devices, discovery_info=None):
-    """Set up the D-Link motion sensor."""
-    from .dlink import (
-        HNAPClient,
-        MotionSensor,
-        WaterSensor,
-        NanoSOAPClient,
-        ACTION_BASE_URL,
-    )
+async def async_setup_entry(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    async_add_entities: AddEntitiesCallback,
+) -> None:
+    """Set up D-Link HNAP binary sensors from a config entry."""
+    coordinator: HNAPDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id]
 
-    soap = NanoSOAPClient(
-        config.get(CONF_HOST),
-        ACTION_BASE_URL,
-        loop=hass.loop,
-        session=async_get_clientsession(hass),
-    )
+    entities = [
+        HNAPBinarySensor(coordinator, description)
+        for description in BINARY_SENSOR_DESCRIPTIONS
+        if description.required_capability in coordinator.capabilities
+    ]
 
-    client = HNAPClient(
-        soap, config.get(CONF_USERNAME), config.get(CONF_PASSWORD), loop=hass.loop
-    )
-
-    if config.get(CONF_TYPE) == "motion":
-        sensor = DlinkMotionSensor(
-            config.get(CONF_NAME), config.get(CONF_TIMEOUT), MotionSensor(client)
-        )
-    else:
-        sensor = DlinkWaterSensor(config.get(CONF_NAME), WaterSensor(client))
-
-    async_add_devices([sensor], update_before_add=True)
+    async_add_entities(entities)
 
 
-class DlinkBinarySensor(BinarySensorEntity):
-    """Representation of a D-Link binary sensor."""
+class HNAPBinarySensor(HNAPBaseEntity, BinarySensorEntity):
+    """Representation of a D-Link HNAP binary sensor."""
 
-    def __init__(self, name, sensor, device_class):
-        """Initialize the D-Link motion binary sensor."""
-        self._name = name
-        self._sensor = sensor
-        self._device_class = device_class
-        self._on = False
+    entity_description: HNAPBinarySensorEntityDescription
+
+    def __init__(
+        self,
+        coordinator: HNAPDataUpdateCoordinator,
+        description: HNAPBinarySensorEntityDescription,
+    ) -> None:
+        """Initialize the binary sensor."""
+        super().__init__(coordinator)
+        self.entity_description = description
+
+        serial = coordinator.data.get("serial", coordinator.entry.entry_id)
+        self._attr_unique_id = f"{serial}_{description.key}"
 
     @property
-    def name(self):
-        """Return the name of the binary sensor."""
-        return self._name
-
-    @property
-    def is_on(self):
+    def is_on(self) -> bool | None:
         """Return true if the binary sensor is on."""
-        return self._on
-
-    @property
-    def device_class(self):
-        """Return the class of this sensor."""
-        return self._device_class
-
-
-class DlinkMotionSensor(DlinkBinarySensor):
-    """Representation of a D-Link motion sensor."""
-
-    def __init__(self, name, timeout, sensor):
-        """Initialize the D-Link motion binary sensor."""
-        super().__init__(name, sensor, BinarySensorDeviceClass.MOTION)
-        self._timeout = timeout
-
-    async def async_update(self):
-        """Get the latest data and updates the states."""
-        try:
-            last_trigger = await self._sensor.latest_trigger()
-        except Exception:
-            last_trigger = None
-            _LOGGER.exception("failed to update motion sensor")
-
-        if not last_trigger:
-            return
-
-        has_timed_out = datetime.now() > last_trigger + timedelta(seconds=self._timeout)
-        if has_timed_out:
-            if self._on:
-                self._on = False
-                self.hass.async_add_job(self.async_update_ha_state(True))
-        else:
-            if not self._on:
-                self._on = True
-                self.hass.async_add_job(self.async_update_ha_state(True))
-
-
-class DlinkWaterSensor(DlinkBinarySensor):
-    """Representation of a D-Link water sensor."""
-
-    def __init__(self, name, sensor):
-        """Initialize the D-Link motion binary sensor."""
-        super().__init__(name, sensor, BinarySensorDeviceClass.MOISTURE)
-
-    async def async_update(self):
-        """Get the latest data and updates the states."""
-        try:
-            water_detected = await self._sensor.water_detected()
-            if self._on != water_detected:
-                self._on = water_detected
-                self.hass.async_add_job(self.async_update_ha_state(True))
-
-        except Exception:
-            last_trigger = None
-            _LOGGER.exception("failed to update water sensor")
+        return self.entity_description.value_fn(self.coordinator.data)

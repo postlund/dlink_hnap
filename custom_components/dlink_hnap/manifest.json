@@ -1,11 +1,20 @@
 {
     "domain": "dlink_hnap",
     "name": "D-Link HNAP",
-    "config_flow": false,
-    "documentation": "https://github.com/postlund/dlink_hnap",
+    "config_flow": true,
+    "documentation": "https://github.com/MichaelB2018/dlink_hnap",
     "codeowners": [
-        "@postlund"
+        "@MichaelB2018"
     ],
-    "issue_tracker": "https://github.com/postlund/dlink_hnap/issues",
-    "version": "1.0.0"
+    "issue_tracker": "https://github.com/MichaelB2018/dlink_hnap/issues",
+    "version": "2.0.0",
+    "iot_class": "local_polling",
+    "requirements": [
+        "xmltodict>=0.13.0"
+    ],
+    "ssdp": [
+        {
+            "manufacturer": "D-Link"
+        }
+    ]
 }
